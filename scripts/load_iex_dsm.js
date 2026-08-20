@@ -1,9 +1,12 @@
+const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
 const { pool } = require('../src/db');
 
 const EXCEL_PATH =
-  process.argv[2] || path.join(__dirname, '..', '..', 'excel', 'IEX_DSM_Combined_Master.xlsx');
+  process.argv[2] ||
+  process.env.EXCEL_PATH ||
+  path.join(__dirname, '..', '..', 'excel', 'IEX_DSM_Combined_Master.xlsx');
 
 const SKIP_SHEETS = new Set(['Summary']);
 
@@ -105,12 +108,21 @@ async function upsertRows(rows) {
   }
 }
 
-async function main() {
-  const workbook = xlsx.readFile(EXCEL_PATH, { cellDates: true });
+async function loadExcel(excelPath = EXCEL_PATH) {
+  if (!fs.existsSync(excelPath)) {
+    throw new Error(
+      `Excel file not found at: ${excelPath}\n` +
+        `Set EXCEL_PATH=... in your .env file, or pass a path explicitly:\n` +
+        `  npm run load -- "C:\\Users\\himanshu\\Scripts\\IEX_data_toDB\\excel\\IEX_DSM_Combined_Master.xlsx"`
+    );
+  }
+
+  console.log(`Reading: ${excelPath}`);
+  const workbook = xlsx.readFile(excelPath, { cellDates: true });
   const stateSheets = workbook.SheetNames.filter((name) => !SKIP_SHEETS.has(name));
 
   if (!stateSheets.length) {
-    throw new Error(`No state sheets found in ${EXCEL_PATH}`);
+    throw new Error(`No state sheets found in ${excelPath}`);
   }
 
   let totalRows = 0;
@@ -122,10 +134,16 @@ async function main() {
   }
 
   console.log(`Done. Total rows upserted: ${totalRows}`);
-  await pool.end();
+  return totalRows;
 }
 
-main().catch((err) => {
-  console.error('Load failed:', err);
-  process.exit(1);
-});
+module.exports = { loadExcel };
+
+if (require.main === module) {
+  loadExcel()
+    .then(() => pool.end())
+    .catch((err) => {
+      console.error('Load failed:', err);
+      process.exit(1);
+    });
+}
